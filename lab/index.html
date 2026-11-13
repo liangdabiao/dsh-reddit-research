@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reddit 调研台</title>
+<script src="scheme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script>
+  addEventListener('load', () => {
+    const l = document.createElement('link')
+    l.rel = 'stylesheet'
+    l.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@200..700&family=Noto+Sans+SC:wght@200..700&family=JetBrains+Mono:wght@400;500&display=swap'
+    document.head.appendChild(l)
+  })
+</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="rail">
+    <a class="brand" href="#/">
+      <span><span class="brand-name">Reddit 调研台</span><span class="brand-sub">dsh-reddit-research</span></span>
+    </a>
+    <nav class="nav" aria-label="导航">
+      <span class="nav-cap">调研</span>
+      <a href="#/">调研库</a>
+      <span class="nav-cap">说明</span>
+      <a href="#/about">流程与纪律</a>
+    </nav>
+    <div class="rail-foot">
+      <span class="badge">RESEARCH</span>
+      <span id="rail-version" class="mono muted">v0.1.0</span>
+    </div>
+  </aside>
+  <main id="app" class="main"></main>
+</div>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
