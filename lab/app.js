@@ -178,14 +178,18 @@
   async function renderFeedSub(sub) {
     $app.innerHTML = `
       <a href="#/feed" class="muted" style="font-size:12px">← 海外动态</a>
-      <h1>r/${esc(sub)}</h1>
-      <p class="lead">最新帖（Arctic Shift 档案，滞后约 36h；数据只读，不含发帖自动化）。</p>
+      <div class="feed-sub-head">
+        <h1 style="flex:1;margin:0">r/${esc(sub)}</h1>
+        <button id="btn-deep" class="small" disabled title="把已加载的帖子清单发给 agent 深度分析">🔍 深度分析</button>
+      </div>
+      <p class="lead">最新帖（Arctic Shift 档案，滞后约 36h；数据只读，不含发帖自动化）。「深度分析」会把当前已加载的帖子清单直接带进新对话，无需重抓。</p>
       <div id="feed-box" class="card"><span class="spin"></span> 拉取中…</div>
       <div class="loadmore"><button id="btn-more" class="ghost" disabled>加载更多</button></div>
       <div id="feed-note" class="muted" style="font-size:12px"></div>
     `
     let nextBefore = null
     let loaded = 0
+    const allPosts = []
     const load = async (before) => {
       const box = document.getElementById('feed-box')
       const btn = document.getElementById('btn-more')
@@ -193,6 +197,7 @@
         const r = await api(`/api/feed?sub=${encodeURIComponent(sub)}${before ? `&before=${before}` : ''}&limit=100`)
         const list = r.posts || []
         loaded += list.length
+        allPosts.push(...list)
         nextBefore = r.nextBefore
         const rows = list.map((p) => {
           const d = new Date((p.created_utc || 0) * 1000)
@@ -220,7 +225,34 @@
       }
     }
     document.getElementById('btn-more').addEventListener('click', () => load(nextBefore))
-    load(null)
+    // 深度分析：把已加载的帖子清单发给 agent（数据已在消息里，无需重抓）
+    document.getElementById('btn-deep').addEventListener('click', () => {
+      if (!allPosts.length) return toast('还没有帖子——先拉取', true)
+      const MAX = 500
+      const rows = allPosts.slice(0, MAX).map((p) => {
+        const d = new Date((p.created_utc || 0) * 1000).toISOString().slice(0, 10)
+        return `[${p.score ?? '-'}赞|${p.num_comments ?? 0}评|${d}] ${(p.title || '').replace(/\n/g, ' ')} — https://www.reddit.com${p.permalink || ''}`
+      })
+      const trimmed = allPosts.length > MAX ? `\n（帖子超过 ${MAX} 条，只带前 ${MAX} 条——按 score+comments 保留高互动的）` : ''
+      if (allPosts.length > MAX) rows.sort((a, b) => 0) // 保序：feed 本身按时间倒序
+      const prompt = [
+        `以下是 Reddit r/${sub} 最新 ${Math.min(allPosts.length, MAX)} 帖（Arctic Shift 档案快照，数据已在本消息里，不要重新抓取）。请做一次深度分析：`,
+        '',
+        '1. 标题级快速五分类（抱怨/求助/展示/称赞/其他）——判据放标题级，展示帖只进生态统计不进痛点',
+        '2. 痛点主题归纳与评分（普遍度×严重度×趋势），Top 主题给代表帖链接；引用前读语义（"finally cracked it" 是正面）',
+        '3. 商业信号扫描：购买意图 / 付费意愿 / 弃用流失 / 退货退款，各给代表引语',
+        '4. 按「调研结论 / 关键痛点 / 矛盾与不确定 / 来源清单」格式输出，每条结论附原帖链接',
+        '5. 数据不足以支撑的结论写「需补调研：X」，禁止凑数编造；若样本值得深挖，建议我用 reddit_research(action=create → probe → fetch) 建正式调研',
+        '',
+        `样本口径：r/${sub} · ${Math.min(allPosts.length, MAX)} 帖 · 数据行格式 [score|评论数|日期] 标题 — 链接${trimmed}`,
+        '',
+        rows.join('\n'),
+      ].join('\n')
+      sendAgentPrompt(prompt, `已把 ${Math.min(allPosts.length, MAX)} 帖带进新对话，agent 开始深度分析`)
+    })
+    load(null).then(() => {
+      if (loaded > 0) document.getElementById('btn-deep').disabled = false
+    })
   }
 
   // ── 调研库

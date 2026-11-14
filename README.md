@@ -117,3 +117,10 @@ App推荐、应用发现、产品讨论
 ## License
 
 MIT（本插件代码）。方法论与上游脚本参考 liangdabiao/reddit-research；Arctic Shift API 使用受其服务条款约束。
+
+
+## 特别致谢
+
+https://linux.do 社区支持
+
+Arctic Shift API 免费提供数据
