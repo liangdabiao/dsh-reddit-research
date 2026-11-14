@@ -113,6 +113,33 @@ td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
 
 pre.report { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 12px; overflow: auto; max-height: 480px; white-space: pre-wrap; }
 
+/* ── 调研报告：Markdown 渲染视图 ───────────────────────────────── */
+.md-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.md-body { line-height: 1.78; font-size: 13.5px; overflow-wrap: anywhere; }
+.md-body h1 { font-size: 19px; margin: 6px 0 12px; letter-spacing: -0.01em; }
+.md-body h2 { font-size: 15.5px; margin: 24px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.md-body h3 { font-size: 14px; margin: 18px 0 6px; }
+.md-body h4 { font-size: 13px; margin: 14px 0 4px; }
+.md-body p { margin: 8px 0; }
+.md-body ul, .md-body ol { margin: 8px 0; padding-left: 22px; }
+.md-body li { margin: 4px 0; }
+.md-body li::marker { color: var(--accent-strong); }
+.md-body a { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
+.md-body a:hover { background: var(--accent-soft); }
+.md-body b { font-weight: 650; }
+.md-body blockquote { margin: 10px 0; padding: 9px 14px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; color: var(--ink); font-size: 12.5px; }
+.md-body code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+.md-body pre.md-pre { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px; overflow-x: auto; }
+.md-body pre.md-pre code { background: none; padding: 0; }
+.md-body hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
+.md-body img { max-width: 100%; border-radius: 8px; }
+.md-table-wrap { overflow-x: auto; margin: 12px 0; border-radius: 8px; border: 1px solid var(--line); }
+.md-table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.md-table th, .md-table td { border-bottom: 1px solid var(--line); padding: 8px 10px; vertical-align: top; }
+.md-table th { background: var(--accent-soft); font-weight: 650; text-align: left; white-space: nowrap; }
+.md-table tbody tr:nth-child(even) { background: var(--bg); }
+.md-table tbody tr:last-child td { border-bottom: 0; }
+
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
   background: var(--ink); color: var(--bg); border-radius: 999px; padding: 10px 20px;

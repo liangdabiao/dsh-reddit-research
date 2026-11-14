@@ -101,19 +101,20 @@ export const redditResearchTool = {
         const { FEED_SUBS, FEED_GROUPS, fetchFeedPage, fetchFeedMulti } = await import('../lib/feed.js')
         if (!args.subs) {
           return result(true, `海外动态：${FEED_SUBS.length} 个精选社区（${FEED_GROUPS.join(' / ')}）。传 subs="saas" 拉单社区最新帖，或不传 subs 列全部目录。`,
-            FEED_SUBS.map((s) => `r/${s.sub}｜月访问 ${s.visits}｜${s.group}｜${s.desc}`).join('\\n'))
+            FEED_SUBS.map((s) => `r/${s.sub}｜月访问 ${s.visits}｜${s.group}｜${s.desc}`).join('\n'))
         }
         const subs = String(args.subs).split(/[,，]/).map((s) => s.trim().replace(/^r\//i, '')).filter(Boolean)
         if (subs.length === 1) {
           const r = await fetchFeedPage(subs[0], { limit: Math.min(args.limit || 100, 100) })
           const lines = r.posts.map((p) => `[${p.score ?? '-'}👍/${p.num_comments ?? 0}💬] ${p.title} — u/${p.author} ${new Date((p.created_utc || 0) * 1000).toISOString().slice(0, 10)} https://www.reddit.com${p.permalink || ''}`)
-          return result(true, `r/${r.sub} 最新 ${r.posts.length} 帖（Arctic Shift 滞后约 36h；只读采集）。`, lines.join('\\n'))
+          const note = r.collapsed ? `，已折叠 ${r.collapsed} 条重复/已删帖` : ''
+          return result(true, `r/${r.sub} 最新 ${r.posts.length} 帖（Arctic Shift 滞后约 36h；只读采集${note}）。`, lines.join('\n'))
         }
         const multi = await fetchFeedMulti(subs, { limit: Math.min(args.limit || 25, 100) })
         const parts = multi.map((r) => r.ok
-          ? `r/${r.sub}: ${r.posts.length} 帖\\n` + r.posts.slice(0, 10).map((p) => `  [${p.score ?? '-'}👍] ${p.title} — ${new Date((p.created_utc || 0) * 1000).toISOString().slice(0, 10)} https://www.reddit.com${p.permalink || ''}`).join('\\n')
+          ? `r/${r.sub}: ${r.posts.length} 帖\n` + r.posts.slice(0, 10).map((p) => `  [${p.score ?? '-'}👍] ${p.title} — ${new Date((p.created_utc || 0) * 1000).toISOString().slice(0, 10)} https://www.reddit.com${p.permalink || ''}`).join('\n')
           : `r/${r.sub}: ✗ ${r.error}`)
-        return result(true, `海外动态 ${multi.filter((r) => r.ok).length}/${subs.length} 个社区。`, parts.join('\\n\\n'))
+        return result(true, `海外动态 ${multi.filter((r) => r.ok).length}/${subs.length} 个社区。`, parts.join('\n\n'))
       }
 
       if (args.action === 'list') {

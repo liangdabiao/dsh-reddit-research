@@ -6,6 +6,91 @@
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 
+  // 近似重复判据（与 lib/feed.js 同口径）：同作者 + 归一化标题相同。
+  // 面板按页累加，分页边界与刷量帖会在相邻两页各出现一次，必须在这里再折一次。
+  const normTitle = (t) => String(t || '')
+    .toLowerCase()
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\bi\s*(?:will|won'?t)\s*not\s*promote\b/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+  const dupKey = (p) => `${String(p.author || '').toLowerCase()}|${normTitle(p.title)}`
+  const BURST_SECONDS = 6 * 3600
+  const burstKey = (p) => `${String(p.author || '').toLowerCase()}|${Math.floor((Number(p.created_utc) || 0) / BURST_SECONDS)}`
+
+  // ── 报告渲染：轻量 Markdown → HTML（零依赖；先 esc 再套标签，链接只放行 http(s)/站内）
+  const MD_BLOCK = /^\s*(#{1,6}\s|```|>\s?|\||[-*+]\s|\d+[.)]\s|([-*_])\s*(\2\s*){2,}$)/
+  function mdInline(src) {
+    let t = esc(src)
+    const codes = []
+    t = t.replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000` })
+    t = t.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, '<img alt="$1" src="$2" loading="lazy">')
+    t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]*|#[^\s)]*)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    t = t.replace(/(^|[\s(（])(https?:\/\/[^\s<)）]+)/g, '$1<a href="$2" target="_blank" rel="noreferrer">$2</a>')
+    t = t.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    t = t.replace(/__([^_]+)__/g, '<b>$1</b>')
+    t = t.replace(/(^|[^\w*])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+    t = t.replace(/(^|[^\w])_([^_\n]+)_/g, '$1<i>$2</i>')
+    t = t.replace(/~~([^~]+)~~/g, '<del>$1</del>')
+    return t.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[+i]}</code>`)
+  }
+  function mdToHtml(src) {
+    const lines = String(src || '').replace(/\r\n?/g, '\n').split('\n')
+    const out = []
+    let i = 0
+    const isSep = (l) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(l || '')
+    const cells = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim())
+    while (i < lines.length) {
+      const line = lines[i]
+      if (!line.trim()) { i++; continue }
+      if (/^\s*```/.test(line)) { // 代码块
+        const buf = []
+        i++
+        while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++])
+        i++
+        out.push(`<pre class="md-pre"><code>${esc(buf.join('\n'))}</code></pre>`)
+        continue
+      }
+      if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) { out.push('<hr>'); i++; continue }
+      const hm = line.match(/^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/)
+      if (hm) { out.push(`<h${Math.min(hm[1].length, 4)}>${mdInline(hm[2])}</h${Math.min(hm[1].length, 4)}>`); i++; continue }
+      if (line.includes('|') && isSep(lines[i + 1] || '')) { // GFM 表格
+        const head = cells(line)
+        const aligns = cells(lines[i + 1]).map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : ''))
+        i += 2
+        const body = []
+        while (i < lines.length && lines[i].includes('|') && lines[i].trim()) body.push(cells(lines[i++]))
+        const al = (k) => (aligns[k] ? ` style="text-align:${aligns[k]}"` : '')
+        out.push(`<div class="md-table-wrap"><table class="md-table"><thead><tr>${head.map((h, k) => `<th${al(k)}>${mdInline(h)}</th>`).join('')}</tr></thead><tbody>${body.map((r) => `<tr>${head.map((_, k) => `<td${al(k)}>${mdInline(r[k] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`)
+        continue
+      }
+      if (/^\s*>/.test(line)) { // 引用
+        const buf = []
+        while (i < lines.length && /^\s*>/.test(lines[i])) buf.push(lines[i++].replace(/^\s*>\s?/, ''))
+        out.push(`<blockquote>${mdInline(buf.join('\n')).replace(/\n/g, '<br>')}</blockquote>`)
+        continue
+      }
+      if (/^\s*([-*+]|\d+[.)])\s+/.test(line)) { // 列表
+        const ordered = /^\s*\d/.test(line)
+        const items = []
+        while (i < lines.length) {
+          const m2 = lines[i].match(/^\s*(?:[-*+]|\d+[.)])\s+(.*)$/)
+          if (!m2) break
+          items.push(m2[1]); i++
+        }
+        out.push(`<${ordered ? 'ol' : 'ul'}>${items.map((x) => `<li>${mdInline(x)}</li>`).join('')}</${ordered ? 'ol' : 'ul'}>`)
+        continue
+      }
+      const buf = []
+      while (i < lines.length && lines[i].trim() && !MD_BLOCK.test(lines[i])) buf.push(lines[i++])
+      if (!buf.length) buf.push(lines[i++])
+      out.push(`<p>${mdInline(buf.join('\n')).replace(/\n/g, '<br>')}</p>`)
+    }
+    return out.join('\n')
+  }
+  const weight = (p) => (Number(p.score) || 0) + 3 * (Number(p.num_comments) || 0)
+
   let toastTimer
   function toast(msg, isErr = false) {
     $toast.textContent = msg
@@ -189,17 +274,31 @@
     `
     let nextBefore = null
     let loaded = 0
+    let collapsed = 0
     const allPosts = []
+    const seenKeys = new Set()
+    const seenBurst = new Set()
     const load = async (before) => {
       const box = document.getElementById('feed-box')
       const btn = document.getElementById('btn-more')
       try {
         const r = await api(`/api/feed?sub=${encodeURIComponent(sub)}${before ? `&before=${before}` : ''}&limit=100`)
         const list = r.posts || []
-        loaded += list.length
-        allPosts.push(...list)
+        // 跨页去重：同作者+同归一化标题只留第一页出现的那条
+        const fresh = []
+        for (const p of list) {
+          const key = dupKey(p)
+          const bkey = burstKey(p)
+          if (seenKeys.has(key) || seenBurst.has(bkey)) { collapsed++; continue }
+          seenKeys.add(key)
+          seenBurst.add(bkey)
+          fresh.push(p)
+        }
+        loaded += fresh.length
+        collapsed += Number(r.collapsed) || 0
+        allPosts.push(...fresh)
         nextBefore = r.nextBefore
-        const rows = list.map((p) => {
+        const rows = fresh.map((p) => {
           const d = new Date((p.created_utc || 0) * 1000)
           const link = p.permalink ? `https://www.reddit.com${p.permalink}` : '#'
           const flair = p.link_flair_text ? `<span class="flair">${esc(p.link_flair_text)}</span>` : ''
@@ -213,7 +312,7 @@
         }).join('')
         box.innerHTML = (box.dataset.body || '') + (rows || '<div class="empty">没有更多帖了</div>')
         box.dataset.body = (box.dataset.body || '') + (rows || '')
-        document.getElementById('feed-note').textContent = `已加载 ${loaded} 帖`
+        document.getElementById('feed-note').textContent = `已加载 ${loaded} 帖${collapsed ? `（折叠 ${collapsed} 条重复/已删帖）` : ''}`
         btn.disabled = !nextBefore
         btn.textContent = nextBefore ? '加载更多' : '到底了'
         btn.onclick = nextBefore ? () => load(nextBefore) : null
@@ -455,7 +554,43 @@
 
     if (d.has_report) {
       api(`/api/studies/${enc}/file?p=report.md`).then((txt) => {
-        document.getElementById('report-box').innerHTML = `<pre class="report">${esc(txt)}</pre>`
+        const box = document.getElementById('report-box')
+        if (!box) return
+        box.innerHTML = `
+          <div class="md-toolbar">
+            <span class="muted" style="font-size:12px">渲染视图 · 链接可直接点开</span>
+            <span style="flex:1"></span>
+            <button id="btn-md-toggle" class="small ghost">查看源码</button>
+            <button id="btn-md-copy" class="small ghost">复制 Markdown</button>
+          </div>
+          <div id="report-md" class="md-body">${mdToHtml(txt)}</div>
+          <pre id="report-src" class="report" hidden>${esc(txt)}</pre>`
+        const md = box.querySelector('#report-md')
+        const srcEl = box.querySelector('#report-src')
+        const tg = box.querySelector('#btn-md-toggle')
+        let raw = false
+        tg.onclick = () => {
+          raw = !raw
+          md.hidden = raw
+          srcEl.hidden = !raw
+          tg.textContent = raw ? '渲染视图' : '查看源码'
+        }
+        box.querySelector('#btn-md-copy').onclick = async () => {
+          try {
+            if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(txt)
+            else {
+              const ta = document.createElement('textarea')
+              ta.value = txt
+              ta.style.position = 'fixed'
+              ta.style.opacity = '0'
+              document.body.appendChild(ta)
+              ta.select()
+              document.execCommand('copy')
+              document.body.removeChild(ta)
+            }
+            toast('已复制报告 Markdown')
+          } catch { toast('复制失败——可切到「查看源码」手动选择', true) }
+        }
       }).catch(() => { document.getElementById('report-box').textContent = '报告读取失败' })
     }
   }
