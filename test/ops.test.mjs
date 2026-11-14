@@ -163,7 +163,33 @@ test('ops：create/fetch/analyze/comments/verify 全链（假服务器）', asyn
   assert.ok(listStudies({}).some((s) => s.name === '链路'))
 })
 
-test.after?.(() => {})
+// 收尾：node --test 要等子进程自然退出，而假服务器的 keep-alive 连接不会自己断，
+// 只 close() 不够（空闲 socket 仍在）——必须先掐掉所有连接，事件循环才能排空。
+test('planWindow：预算内不缩窗 / 超预算自动缩到 20 页内 / 无可用 sub', async () => {
+  const { planWindow, PAGE_BUDGET } = await import('../lib/ops.js')
+  // 30 天 1152 帖 → 12 页，不缩
+  const a = planWindow([{ ok: true, count: 1152, per_day: 38.4 }], 30)
+  assert.equal(a.days, 30)
+  assert.equal(a.pages, 12)
+  assert.equal(a.shrunk, false)
+  // 540 天 19800 帖 → 198 页，必须缩到预算内且不退到 7 天以下
+  const b = planWindow([{ ok: true, count: 19800, per_day: 36.7 }], 540)
+  assert.ok(b.pages <= PAGE_BUDGET, `pages=${b.pages}`)
+  assert.equal(b.shrunk, true)
+  assert.ok(b.days >= 7 && b.days < 540, `days=${b.days}`)
+  // 多 sub 合计也算预算
+  const c = planWindow([{ ok: true, count: 12000, per_day: 40 }, { ok: true, count: 6000, per_day: 20 }], 300)
+  assert.ok(c.pages <= PAGE_BUDGET, `multi pages=${c.pages}`)
+  // 没有可用 sub：不缩窗、0 页
+  const d = planWindow([{ ok: false, count: null }], 90)
+  assert.equal(d.pages, 0)
+  assert.equal(d.days, 90)
+})
+
+test.after(() => {
+  try { srv.closeAllConnections?.() } catch { /* ignore */ }
+  try { srv.close() } catch { /* ignore */ }
+})
 process.on('exit', () => { try { srv.close() } catch { /* ignore */ } })
-// undici keep-alive 连接会挂住事件循环（家族已知坑）——测试全部登记完后强制退出
+// undici keep-alive 连接会挂住事件循环（家族已知坑）——兜底：事件循环排空后再强制退出
 process.on('beforeExit', () => process.exit(process.exitCode || 0))

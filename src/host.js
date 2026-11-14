@@ -66,17 +66,18 @@ export const redditResearchTool = {
     'Reddit 深度调研工作台：从 subreddit 抓取真实用户讨论（Arctic Shift 免认证档案 API），输出痛点评分卡、商业信号（购买/付费/流失/退货）、竞品口碑与选品/进入决策报告，全部结论带原帖链接可复算。' +
     '用户说「调研 reddit」「r/xxx 在聊什么」「reddit 用户怎么看 xxx」「某品类值不值得做」「选品/竞品分析」「reddit 高赞帖」时使用。' +
     '工作目录 $DSH_HOME/reddit-research/<调研名>/。只读采集，不含发帖/评论自动化。' +
-    '流程：probe 探活估页数（必须先跟用户确认窗口）→ fetch 全量拉取 → themes 主题表（按品类重建，短词加 \\b）→ analyze（五分类+评分卡）→ comments（痛点层补刀，禁止对全局热度 top 抓评论）→ 写 report.md → verify 数字闭环。',
+    '流程：probe 探活并自动定窗（按页数预算 ≤20 页，超了自动缩窗，不需要用户确认）→ fetch 全量拉取 → themes 主题表（按品类重建，短词加 \\b）→ analyze（五分类+评分卡）→ comments（痛点层补刀，禁止对全局热度 top 抓评论）→ 写 report.md → verify 数字闭环。',
   parameters: {
     type: 'object',
     additionalProperties: false,
     required: ['action'],
     properties: {
-      action: str('probe 探活估样本量；create 建调研；fetch 全量拉取（断点续传）；themes 保存主题表+scope；analyze 帖级分析（五分类+评分卡+商业信号）；comments 评论树补刀+评论级分析；report 保存报告；verify 数字闭环校验；read 读产物；list 列调研；delete 删调研', { enum: ['probe', 'create', 'fetch', 'themes', 'analyze', 'comments', 'report', 'verify', 'read', 'list', 'delete'] }),
+      action: str('probe 探活估样本量；create 建调研；fetch 全量拉取（断点续传）；themes 保存主题表+scope；analyze 帖级分析（五分类+评分卡+商业信号）；comments 评论树补刀+评论级分析；report 保存报告；verify 数字闭环校验；read 读产物；list 列调研；delete 删调研；feed 海外动态（16 精选社区最新帖流）', { enum: ['probe', 'create', 'fetch', 'themes', 'analyze', 'comments', 'report', 'verify', 'read', 'list', 'delete', 'feed'] }),
       name: str('调研名（可中文，如 假发品类调研）'),
       question: str('create 必填：研究问题（品类/产品 + 要回答的决策问题 + 目标用户，一行钉死，没有它后面所有筛选没有准绳）'),
       subs: str('subs：subreddit 列表（逗号分隔，不带 r/ 前缀；fetch 缺省用 create 时登记的）'),
-      days: num('时间窗天数（probe 默认 30；fetch 缺省用 create 时登记的，默认 90）'),
+      limit: num('feed 可选：每社区拉多少帖（默认 25，单社区模式 ≤100）'),
+      days: num('时间窗天数（probe 默认 30；fetch 缺省用 probe 自动定下的窗口，其次 create 时登记的，默认 90）'),
       fresh: str('fetch 可选：true=忽略断点从头重抓', { enum: ['true', 'false'] }),
       themes: str('themes 必填：主题表 JSON 字符串 {"主题名": "正则"}（按品类重建；短词 ap/log/can/pin/ram/doc/ota/ble 裸写会误命中普通词，必须 \\b 词边界）'),
       scope: str('themes 可选 + analyze/comments 可选：调研目标相关性正则（品类/产品关键词）——输出数据体检占比，<30% 先修数据再写报告'),
@@ -96,6 +97,25 @@ export const redditResearchTool = {
     check(args, this.parameters)
     const cfg = configRef.config
     try {
+      if (args.action === 'feed') {
+        const { FEED_SUBS, FEED_GROUPS, fetchFeedPage, fetchFeedMulti } = await import('../lib/feed.js')
+        if (!args.subs) {
+          return result(true, `海外动态：${FEED_SUBS.length} 个精选社区（${FEED_GROUPS.join(' / ')}）。传 subs="saas" 拉单社区最新帖，或不传 subs 列全部目录。`,
+            FEED_SUBS.map((s) => `r/${s.sub}｜月访问 ${s.visits}｜${s.group}｜${s.desc}`).join('\\n'))
+        }
+        const subs = String(args.subs).split(/[,，]/).map((s) => s.trim().replace(/^r\//i, '')).filter(Boolean)
+        if (subs.length === 1) {
+          const r = await fetchFeedPage(subs[0], { limit: Math.min(args.limit || 100, 100) })
+          const lines = r.posts.map((p) => `[${p.score ?? '-'}👍/${p.num_comments ?? 0}💬] ${p.title} — u/${p.author} ${new Date((p.created_utc || 0) * 1000).toISOString().slice(0, 10)} https://www.reddit.com${p.permalink || ''}`)
+          return result(true, `r/${r.sub} 最新 ${r.posts.length} 帖（Arctic Shift 滞后约 36h；只读采集）。`, lines.join('\\n'))
+        }
+        const multi = await fetchFeedMulti(subs, { limit: Math.min(args.limit || 25, 100) })
+        const parts = multi.map((r) => r.ok
+          ? `r/${r.sub}: ${r.posts.length} 帖\\n` + r.posts.slice(0, 10).map((p) => `  [${p.score ?? '-'}👍] ${p.title} — ${new Date((p.created_utc || 0) * 1000).toISOString().slice(0, 10)} https://www.reddit.com${p.permalink || ''}`).join('\\n')
+          : `r/${r.sub}: ✗ ${r.error}`)
+        return result(true, `海外动态 ${multi.filter((r) => r.ok).length}/${subs.length} 个社区。`, parts.join('\\n\\n'))
+      }
+
       if (args.action === 'list') {
         const studies = listStudies(cfg)
         if (!studies.length) return result(true, '还没有调研。用 action=create 建一个（先想清楚研究问题）。')
@@ -107,13 +127,13 @@ export const redditResearchTool = {
         const subs = String(args.subs || '').split(/[,，]/).map((s) => s.trim().replace(/^r\//i, '')).filter(Boolean)
         if (!subs.length) throw new Error('probe 需要 subs（逗号分隔）')
         const r = await probe(cfg, args.name, subs, { days: args.days || 30 })
-        return result(true, `${r.summary}\n\n把「页数 + 预估帖数」报给用户确认窗口后再 fetch——时间窗必须先算样本量，不能拍脑袋。`)
+        return result(true, `${r.summary}\n\n窗口已按页数预算定好${r.plan?.shrunk ? '（原窗口超预算，已自动缩窗）' : ''}，直接 action="fetch" 即可 —— 不要回头找用户确认窗口。只有用户明确要求「要拉满 N 年/N 个月」时才照用户的窗口跑，并先回报预计页数与耗时。`)
       }
 
       if (args.action === 'create') {
         const subs = String(args.subs || '').split(/[,，]/).map((s) => s.trim().replace(/^r\//i, '')).filter(Boolean)
         const r = createStudy(cfg, args.name, { question: args.question, subs, days: args.days || 90 })
-        return result(true, `调研「${r.name}」已创建（窗口 ${args.days || 90} 天）。研究问题：${args.question || '（未填——没有研究问题，后面所有筛选没有准绳！）'}。下一步：action=probe 探活估页数，跟用户确认后 fetch。`)
+        return result(true, `调研「${r.name}」已创建（窗口 ${args.days || 90} 天）。研究问题：${args.question || '（未填——没有研究问题，后面所有筛选没有准绳！）'}。下一步：action="probe"（会自动算窗口建议并写回调研）→ 直接 action="fetch"，不用问用户窗口。`)
       }
 
       if (args.action === 'fetch') {

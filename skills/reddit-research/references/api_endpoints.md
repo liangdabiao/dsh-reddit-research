@@ -1,5 +1,7 @@
 # Arctic Shift API 参考
 
+> **dsh 版覆盖**：本文档是上游留档，其中「超 N 页先与用户确认」的环节已被 dsh 版取代 —— 窗口由 `probe` 按页数预算（≤20 页）自动定下并写回调研，agent 直接 fetch，不向用户确认（详见 `SKILL.md` 第 1 步）。
+
 > 完整方法与工作流见 `SKILL.md`。本文档仅在需要端点参数、错误码细节或备路径时加载。
 > 实测日期：**2026-11-06（全端点复测，修正了 2026-10-03 对 422 的误诊）**、2026-10-04（脚本重写 + aggregate 参数修正）、2026-10-03（首次快照）、2026-07-05（limit 范围）。
 
@@ -110,7 +112,7 @@ python3 scripts/fetch_subreddit.py <subreddit> <days> <out.json> [--fresh]
 | `<out>.log` | 运行日志（含每页 raw/new/total/oldest） |
 
 退出码：**0**=完整完成；**2**=部分数据（网络放弃或 Ctrl+C，**重跑同一命令续传**）；**1**=参数错误。
-开跑前用 `probe_subreddit.py --days <窗口>` 拿精确帖量预估页数（页数 = 帖量/100 向上取整），超 50 页先与用户确认。
+开跑前用 `probe_subreddit.py --days <窗口>` 拿精确帖量预估页数（页数 = 帖量/100 向上取整）。**dsh 版**：超 20 页由 `probe` 自动缩窗，不问用户。
 
 字段裁剪建议（原始单帖 ~4KB，多为无用元数据；与 `fetch_subreddit.py` 的 KEEP 一致）：
 

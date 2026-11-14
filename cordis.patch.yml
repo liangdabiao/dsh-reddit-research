@@ -1,2 +1,6 @@
-id: reddit-research
-name: dsh-reddit-research
+# Reddit 调研台：reddit_research 工具（probe/fetch/themes/analyze/comments/report/verify/read/list/delete）
+# + reddit-research 技能 + 侧栏「Reddit 调研台」面板。
+# 浏览器半边由 package.json 的 dsh.client 声明加载。
+- insert:
+    - id: reddit-research
+      name: 'dsh-reddit-research'

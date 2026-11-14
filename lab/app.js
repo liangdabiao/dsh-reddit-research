@@ -28,6 +28,56 @@
   }
   const apiPost = (path, payload) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload || {}) })
 
+  // ── 送给 agent 对话（其他插件同款：postMessage 让宿主开新对话填草稿 → start-ok 握手 → 独立预览时退回剪贴板）
+  let EMBEDDED = false
+  try { EMBEDDED = parent !== window } catch { EMBEDDED = false }
+
+  function copyText(text) {
+    const fallback = () => {
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+        toast('草稿已复制——粘贴到 dsh 对话即可开始')
+      } catch { toast('复制失败，请手动选中指令', true) }
+    }
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(() => toast('草稿已复制——粘贴到 dsh 对话即可开始'), fallback)
+    else fallback()
+  }
+
+  function sendAgentPrompt(prompt, okMsg = '已在宿主开新对话——agent 接着处理') {
+    if (!EMBEDDED) return copyText(prompt)
+    let done = false
+    const timer = setTimeout(() => { if (!done) { done = true; removeEventListener('message', onMsg); copyText(prompt) } }, 1500)
+    function onMsg(e) {
+      if (e.origin !== location.origin || done) return
+      if (e.data?.type === 'reddit-research:start-ok') { done = true; clearTimeout(timer); removeEventListener('message', onMsg); toast(okMsg) }
+      else if (e.data?.type === 'reddit-research:start-failed') { done = true; clearTimeout(timer); removeEventListener('message', onMsg); toast(`没能开新对话：${e.data.message || ''}`, true) }
+    }
+    addEventListener('message', onMsg)
+    try { parent.postMessage({ type: 'reddit-research:refresh', prompt }, location.origin) } catch { done = true; clearTimeout(timer); removeEventListener('message', onMsg); copyText(prompt) }
+  }
+
+  function startPrompt({ name, question, subs, days }) {
+    const subList = String(subs || '').split(/[,，\s]+/).map((s) => s.trim().replace(/^r\//i, '')).filter(Boolean)
+    return [
+      '新建并开始一个 Reddit 调研：',
+      `- 调研名：${name}`,
+      `- 研究问题：${question}`,
+      `- subreddit：${subList.length ? subList.map((s) => 'r/' + s).join(', ') : '（待定）'}`,
+      `- 时间窗：${days} 天`,
+      '',
+      `请先 reddit_research(action="create", name="${name}", question="${question}"${subList.length ? `, subs="${subList.join(',')}"` : ''}, days=${days})，`,
+      '再 action="probe"：窗口由 probe 按页数预算（单次 ≤20 页）自动定，写回调研后直接 action="fetch"——**不要回头问我确认窗口**，你自己按数据判断即可。',
+      '纪律：每条结论附原帖链接、只写相关帖、数据不足写「需补调研：X」禁止凑数、报告写完必须 verify 数字闭环。',
+    ].join('\n')
+  }
+
   // ── 路由
   const routes = []
   const route = (re, fn) => routes.push([re, fn])
@@ -48,6 +98,129 @@
     btn.disabled = true
     btn.innerHTML = `<span class="spin"></span> ${label}`
     return () => { btn.disabled = false; btn.textContent = old }
+  }
+
+  // ── 发起调研（填一行 → 开新对话把指令带过去）
+  route(/^#\/new$/, renderNew)
+  function renderNew() {
+    $app.innerHTML = `
+      <a href="#/" class="muted" style="font-size:12px">← 调研库</a>
+      <h1>发起调研</h1>
+      <p class="lead">先把研究问题钉死一行：<b>品类/产品 + 要回答的决策问题 + 目标用户</b>。没有它，后面所有筛选都没有准绳。点「发起调研」会开一个新对话并填好指令（不自动发送），agent 接着跑探活 → 拉取 → 主题表 → 分析。</p>
+      <div class="card" style="max-width:760px">
+        <label for="f-name">调研名</label>
+        <input type="text" id="f-name" placeholder="如 假发品类调研" autocomplete="off">
+        <label for="f-question">研究问题（一行钉死）</label>
+        <textarea id="f-question" placeholder="如 美国 25-40 岁黑人女性假发：值不值得做、主要在抱怨什么、愿意为哪些点付钱"></textarea>
+        <div class="row">
+          <div><label for="f-subs">subreddit（逗号分隔，不带 r/）</label><input type="text" id="f-subs" placeholder="Wigs,HaircareScience" autocomplete="off"></div>
+          <div style="max-width:140px"><label for="f-days">时间窗（天）</label><input type="number" id="f-days" value="90" min="1" max="2000"></div>
+        </div>
+        <div class="row" style="margin-top:16px">
+          <button id="f-go" style="flex:0 0 auto">＋ 发起调研</button>
+          <span class="muted" style="font-size:12px;align-self:center">agent 自己 probe 定窗（单次 ≤20 页，超了按日均自动缩窗），不用你确认；每 100 帖 1 页 ≈ 0.75 秒。</span>
+        </div>
+      </div>
+      <h2>三种常见问法</h2>
+      <div class="card" style="font-size:13px;line-height:2">
+        · 「r/xxx 最近在抱怨什么」——轻量流程：probe → fetch → themes → analyze，出痛点清单<br>
+        · 「某品类值不值得做」——深度流程：另读 references/deep_research_10_modules.md，出 B1–B7 商业决策报告<br>
+        · 「r/xxx 的用户怎么看这个品牌」——scope 正则 + KOC 软文检测 + 评论级口碑矩阵
+      </div>
+    `
+    document.getElementById('f-go').addEventListener('click', () => {
+      const name = document.getElementById('f-name').value.trim()
+      const question = document.getElementById('f-question').value.trim()
+      const subs = document.getElementById('f-subs').value.trim()
+      const days = Math.max(1, Math.min(2000, Number(document.getElementById('f-days').value) || 90))
+      if (!name) return toast('先填调研名', true)
+      if (!question) return toast('先填研究问题——没有它，后面所有筛选没有准绳', true)
+      sendAgentPrompt(startPrompt({ name, question, subs, days }))
+    })
+    document.getElementById('f-name').focus()
+  }
+
+  // ── 海外动态：16 个精选社区目录 + 最新帖流（分页 before 游标，刷新看更多）
+  route(/^#\/feed$/, renderFeed)
+  async function renderFeed() {
+    let cat
+    try { cat = await api('/api/feed/catalog') } catch (e) { $app.innerHTML = `<div class="empty">面板服务连接失败：${esc(e.message)}</div>`; return }
+    const state = { group: '全部' }
+    const rv = document.getElementById('rail-version')
+    if (rv && cat.version) rv.textContent = 'v' + cat.version
+    render()
+
+    function render() {
+      const subs = cat.subs.filter((s) => state.group === '全部' || s.group === state.group)
+      const chips = ['全部', ...cat.groups].map((g) =>
+        `<span class="chip ${state.group === g ? 'on' : ''}" data-group="${esc(g)}">${esc(g)}</span>`).join('')
+      const cards = subs.map((s) => `
+        <div class="card sub-card">
+          <div class="head">
+            <a class="rname" href="#/feed/${encodeURIComponent(s.sub)}">r/${esc(s.sub)}</a>
+            <span class="visits">月访问 ${esc(s.visits)}</span>
+          </div>
+          <div class="muted" style="font-size:12.5px">${esc(s.desc)}</div>
+          <div class="row"><a class="btn small" href="#/feed/${encodeURIComponent(s.sub)}">最新帖 →</a></div>
+        </div>`).join('')
+      $app.innerHTML = `
+        <h1>海外动态</h1>
+        <p class="lead">${esc(cat.note)}。点进社区看最新帖，「加载更多」按 before 游标续拉。</p>
+        <div class="chips">${chips}</div>
+        <div class="sub-grid">${cards}</div>`
+      $app.querySelectorAll('[data-group]').forEach((chip) => {
+        chip.addEventListener('click', () => { state.group = chip.dataset.group; render() })
+      })
+    }
+  }
+
+  route(/^#\/feed\/(.+)$/, (sub0) => renderFeedSub(decodeURIComponent(sub0)))
+  async function renderFeedSub(sub) {
+    $app.innerHTML = `
+      <a href="#/feed" class="muted" style="font-size:12px">← 海外动态</a>
+      <h1>r/${esc(sub)}</h1>
+      <p class="lead">最新帖（Arctic Shift 档案，滞后约 36h；数据只读，不含发帖自动化）。</p>
+      <div id="feed-box" class="card"><span class="spin"></span> 拉取中…</div>
+      <div class="loadmore"><button id="btn-more" class="ghost" disabled>加载更多</button></div>
+      <div id="feed-note" class="muted" style="font-size:12px"></div>
+    `
+    let nextBefore = null
+    let loaded = 0
+    const load = async (before) => {
+      const box = document.getElementById('feed-box')
+      const btn = document.getElementById('btn-more')
+      try {
+        const r = await api(`/api/feed?sub=${encodeURIComponent(sub)}${before ? `&before=${before}` : ''}&limit=100`)
+        const list = r.posts || []
+        loaded += list.length
+        nextBefore = r.nextBefore
+        const rows = list.map((p) => {
+          const d = new Date((p.created_utc || 0) * 1000)
+          const link = p.permalink ? `https://www.reddit.com${p.permalink}` : '#'
+          const flair = p.link_flair_text ? `<span class="flair">${esc(p.link_flair_text)}</span>` : ''
+          return `<div class="post-row">
+            <div class="post-score">${p.score ?? '–'}<small>👍</small></div>
+            <div class="post-main">
+              <div class="post-title"><a href="${esc(link)}" target="_blank" rel="noreferrer">${esc(p.title || '(无标题)')}</a>${flair}</div>
+              <div class="post-meta">r/${esc(p.subreddit || sub)} · u/${esc(p.author || '-')} · ${esc(d.toISOString().slice(0, 10))} · 💬 ${p.num_comments ?? 0} 评论 · <a href="${esc(link)}" target="_blank" rel="noreferrer">原帖 ↗</a></div>
+            </div>
+          </div>`
+        }).join('')
+        box.innerHTML = (box.dataset.body || '') + (rows || '<div class="empty">没有更多帖了</div>')
+        box.dataset.body = (box.dataset.body || '') + (rows || '')
+        document.getElementById('feed-note').textContent = `已加载 ${loaded} 帖`
+        btn.disabled = !nextBefore
+        btn.textContent = nextBefore ? '加载更多' : '到底了'
+        btn.onclick = nextBefore ? () => load(nextBefore) : null
+      } catch (e) {
+        box.innerHTML = `<div class="empty">拉取失败：${esc(e.message)}（Arctic Shift 过载常见，点重试）</div>`
+        btn.disabled = false
+        btn.textContent = '重试'
+        btn.onclick = () => load(before)
+      }
+    }
+    document.getElementById('btn-more').addEventListener('click', () => load(nextBefore))
+    load(null)
   }
 
   // ── 调研库
@@ -76,11 +249,17 @@
             <button class="danger small" data-del="${esc(s.name)}">删除</button>
           </div>
         </div>`).join('') + '</div>'
-      : '<div class="empty">还没有调研——在对话里让 agent 用 reddit_research(action="create") 建一个（先钉死研究问题）。</div>'
+      : `<div class="empty"><div>还没有调研——钉死研究问题后发起一次。</div><p style="margin:8px 0 0">agent 会按 probe → fetch → themes → analyze → comments → report → verify 走完，全部结论带原帖链接。</p><a class="btn" href="#/new" style="margin-top:16px;display:inline-block">＋ 发起第一个调研</a></div>`
 
     $app.innerHTML = `
-      <h1>Reddit 调研台</h1>
-      <p class="lead">Arctic Shift 免认证档案 API（数据滞后约 36h）。流程：探活估样本量 → 全量拉取（断点续传）→ 主题表 → 帖级分析（五分类+评分卡）→ 评论树补刀 → 报告 + 数字闭环校验。全部结论带原帖链接可复算。</p>
+      <div class="page-head">
+        <div>
+          <h1>Reddit 调研台</h1>
+          <p class="lead" style="margin:0">Arctic Shift 免认证档案 API（数据滞后约 36h）。流程：探活估样本量 → 全量拉取（断点续传）→ 主题表 → 帖级分析（五分类+评分卡）→ 评论树补刀 → 报告 + 数字闭环校验。全部结论带原帖链接可复算。</p>
+        </div>
+        <a class="btn" href="#/new">＋ 发起调研</a>
+      </div>
+      <h2>调研库${catalog.studies.length ? `<span class="muted" style="font-weight:400;font-size:12px"> · ${catalog.studies.length} 个</span>` : ''}</h2>
       ${listHtml}
       <p class="lead" style="margin-top:18px">数据目录：<span class="mono">${esc(catalog.studiesRoot || '~/.dsh/reddit-research')}</span></p>
     `
@@ -199,8 +378,10 @@
       const done = busyBtn(e.target, '探活中…')
       try {
         const r = await apiPost(`/api/studies/${enc}/probe`, { subs: document.getElementById('in-subs').value, days: Number(document.getElementById('in-days').value) || 30 })
-        document.getElementById('probe-out').textContent = r.results.map((x) => `r/${x.sub}: ${x.verdict}${x.count !== null ? `（近${x.per_day * (x.count / x.per_day || 30)}天 ${x.count} 帖，页数≈${Math.ceil((x.count || 0) / 100)}）` : ''}`).join('\n')
-        toast('探活完成——把页数报给用户确认窗口后再拉取')
+        document.getElementById('probe-out').textContent = r.summary || r.results.map((x) => `r/${x.sub}: ${x.verdict}`).join('\n')
+        // 探活会把窗口定下来（超预算自动缩）——直接同步到输入框，点「拉取」就是建议值
+        if (r.plan?.days) document.getElementById('in-days').value = r.plan.days
+        toast(r.plan?.shrunk ? `窗口按预算缩到 ${r.plan.days} 天（${r.plan.pages} 页）——直接拉取即可` : '窗口在预算内——直接拉取即可')
       } catch (err) { toast(err.message, true) } finally { done() }
     })
     document.getElementById('btn-fetch')?.addEventListener('click', async (e) => {
@@ -236,13 +417,8 @@
       } catch (err) { toast(err.message, true); done() }
     })
     document.getElementById('btn-chat')?.addEventListener('click', () => {
-      const prompt = `继续 reddit 调研「${name}」：用 reddit_research 检查当前进度（action=read, what=detail），按流程推进下一步（探活确认→fetch→themes→analyze→comments→report→verify），纪律：结论带原帖链接、只写相关帖、数据不足写需补调研。`
-      try { parent.postMessage({ type: 'reddit-research:refresh', prompt }, location.origin) } catch {}
-      toast('已发送到对话')
-    })
-    addEventListener('message', (e) => {
-      if (e.data?.type === 'reddit-research:start-ok') toast('已开新对话并填入草稿')
-      if (e.data?.type === 'reddit-research:start-failed') toast('开新对话失败：' + (e.data.message || ''), true)
+      const prompt = `继续 reddit 调研「${name}」：用 reddit_research 检查当前进度（action=read, what=detail），按流程推进下一步（探活定窗→fetch→themes→analyze→comments→report→verify），纪律：结论带原帖链接、只写相关帖、数据不足写需补调研。`
+      sendAgentPrompt(prompt, '已开新对话并填入这个调研的推进指令')
     })
 
     if (d.has_report) {
@@ -258,7 +434,7 @@
       <h1>流程与纪律</h1>
       <p class="lead">七个步骤，每一步都有上游实测教训背书。违反任何一条都会得出错误结论或浪费大量时间。</p>
       <div class="card" style="line-height:2;font-size:13px">
-        <b>1. 探活</b> — probe 拿近 N 天精确帖量（aggregate 端点），页数 = 帖量/100。<b>把页数报给用户确认窗口</b>——时间窗不能拍脑袋（实测 540 天窗口 = 89 页串行 40 分钟）。近 N 天 0 帖或日均 &lt;1 帖的 sub 不可用于结论。<br>
+        <b>1. 探活定窗</b> — probe 拿近 N 天精确帖量（aggregate 端点），页数 = 帖量/100。<b>窗口由 probe 按页数预算（单次 ≤20 页）自动定下并写回调研</b>，超预算按日均自动缩窗（下限 7 天）；agent 照建议值直接拉，不问用户。只有当用户明确要求「拉满 N 年 / 全量」时才照用户的窗口跑并先回报预计耗时。近 N 天 0 帖或日均 &lt;1 帖的 sub 不可用于结论。<br>
         <b>2. 全量拉取</b> — fetch 分页拉帖子（增量落盘+断点续传）。关键词搜索通道过载敏感且品牌名几乎不在标题——全量拉取+本地过滤始终是主路径。422 "Timeout" = 瞬态过载退避重试；400（全站关键词查询）= 形态不允许不重试。<br>
         <b>3. 主题表</b> — 按调研品类重建（模板只参考结构）。<b>短词必须加 \\b 词边界</b>：ap/log/ram/can/pin/doc/ota 裸写会命中 app/happy/program/shipping，主题频次整体虚高。<br>
         <b>4. 帖级分析</b> — 五分类（抱怨/求助/展示/称赞/其他）。<b>判据放标题级</b>：全文过滤会被 score 2000+ 的晒作品帖霸榜（实测 2819→847 帖）。必看 Top30 展示帖占比 &gt;50% = 情感展示型。求助帖单独立类（工程社区抱怨:求助 ≈ 1:3.7）。<br>

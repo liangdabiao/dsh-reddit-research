@@ -23,6 +23,8 @@ description: Reddit 深度调研方法论：从 subreddit 抓取真实用户讨�
 | `comment_tree.py` + `analyze_comments.py` | `action="comments"`（痛点层补刀 + 评论级分析，自动剔 [removed]/机器人） |
 | `verify_citations.py` | `action="verify"`（数字闭环：ID/score/comments/日期逐条回查数据集） |
 
+**海外动态（v0.2.0）**：`action="feed"` 拉 16 个精选社区（创业·SaaS / 营销·SEO / 应用·AI 开发）最新帖流——不传 subs 列目录，`subs="saas"` 单社区（`limit` ≤100），多社区各拉一页混排。面板侧栏「海外动态」栏目可分类筛选、看帖流、「加载更多」按 before 游标续拉。数据只读、滞后约 36h。
+
 数据落 `$DSH_HOME/reddit-research/<调研名>/`：`data/<sub>.json(+.jsonl/.meta/.log)` + `themes.json` + `analysis.md` + `comments.md` + `report.md`。面板（侧栏「Reddit 调研台」）可看数据构成/五分类/评分卡/商业信号/报告与闭环状态，并提供探活/拉取/分析/校验直调。
 
 ## 工作流决策
@@ -34,11 +36,19 @@ description: Reddit 深度调研方法论：从 subreddit 抓取真实用户讨�
 
 ## 标准工作流（七步，缺一不可）
 
-### 1. 界定研究问题 + 探活
+### 1. 界定研究问题 + 探活定窗
 
 先用三行字钉死调研：品类/产品、要回答的决策问题、目标用户。**没有研究问题，后面所有筛选没有准绳。**
 
-`reddit_research(action="create", name=..., question=..., subs="esp32,arduino", days=90)` → `action="probe"` 拿近 N 天精确帖量。**把「页数 + 预估帖数」报给用户确认窗口后再拉**——时间窗不能拍脑袋（实测 540 天窗口 = 89 页串行 40 分钟）。近 N 天 0 帖或日均 <1 帖的 sub 不可用于结论。
+`reddit_research(action="create", name=..., question=..., subs="esp32,arduino", days=90)` → `action="probe"` 拿近 N 天精确帖量与页数。
+
+**窗口由 probe 定，不要把页数抛给用户拍板**：probe 回执自带「窗口建议」并写回调研（`project.json.days`），直接 `action="fetch"` 即可。
+
+- 页数预算：单次 fetch ≤ **20 页**（1 页 = 100 帖 ≈ 0.75 秒；20 页 ≈ 2000 帖 ≈ 1.5 分钟串行）
+- 超预算 → probe 按同一份日均数据自动缩窗（下限 7 天）并说明缩了多少；**照建议值拉，不要回头问用户**
+- 没超预算 → 别为「跑得更快」再砍窗口，样本越全结论越稳
+- 只有用户明确说「要拉满 N 年 / 全量」时才照用户的窗口跑，并先回报预计页数与耗时
+- 近 N 天 0 帖或日均 <1 帖的 sub **不可用于结论**（换 sub，或报告里写「需补调研」）
 
 ### 2. 全量拉取
 

@@ -68,8 +68,12 @@ curl -s "https://arctic-shift.photon-reddit.com/api/posts/search?subreddit=<SUB>
   -H "User-Agent: reddit-research/1.0"
 # 2) 本地算：跨度天数 span = (max created_utc - min created_utc)/86400
 #    日均 = 100 / span    总量预估 = 日均 × 窗口天数    页数 = 总量 / 100
-# 3) 把「页数 + 预估帖数」报给用户确认后再开跑
+# 3) dsh 版：不再问用户——probe 按单次 ≤20 页预算自动缩窗，agent 照建议值直接开跑
 ```
+
+> **dsh 版覆盖**：本文档是上游留档。第 3 步「把页数报给用户确认」已被取代：`reddit_research(action="probe")`
+> 会按页数预算（≤20 页，约 2000 帖 / 1.5 分钟）自动定窗并写回调研，agent 直接 `action="fetch"`，不打断用户。
+> 只有用户明确要求「拉满 N 年 / 全量」时才照用户窗口跑并先回报预计耗时。规则见 `SKILL.md` 第 1 步。
 
 **更省事的做法（2026-10-04 起可用）**：`python scripts/probe_subreddit.py <subs...> --days <窗口>`
 直接返回各 sub 近 N 天**精确**帖量（aggregate 端点），无需自己拉页估算——
@@ -179,7 +183,7 @@ python3 scripts/fetch_subreddit.py <subreddit> <days> <out.json># macOS/Linux
 3. **空响应先重试 2–3 次再判定到头**（偶发瞬时空响应）
 4. 全部拉完后按 `id` 去重
 
-**并发纪律（与坑2b 对齐）**：单个 sub 内分页必须串行（限速 + 保序）；**多个 sub 之间并行**——每个 sub 一个独立进程、独立输出路径与日志。**大 sub 要有耐心**：r/Hair 半年 = 19,800 帖 / 198 页；r/curlyhair = 10,800 帖 / 108 页。开跑前用步骤 1 的帖量预估页数，超 50 页先与用户确认窗口。
+**并发纪律（与坑2b 对齐）**：单个 sub 内分页必须串行（限速 + 保序）；**多个 sub 之间并行**——每个 sub 一个独立进程、独立输出路径与日志。**大 sub 要有耐心**：r/Hair 半年 = 19,800 帖 / 198 页；r/curlyhair = 10,800 帖 / 108 页。开跑前用步骤 1 的帖量预估页数；**dsh 版超 20 页由 probe 自动缩窗，不问用户**。
 
 ### 步骤 3：合并 + 数据体检 + 品牌/范围本地过滤
 

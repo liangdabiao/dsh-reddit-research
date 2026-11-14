@@ -163,6 +163,12 @@ ESP32 用户最大痛点是电源与连接（样本 60 帖 / 20 天窗口）。
   check('read analysis', a.ok && a.data.includes('痛点评分卡'), '')
   const ls = await call({ action: 'list' })
   check('list 已闭环标记', ls.data.includes('✓闭环'), ls.data.slice(0, 80))
+  {
+    const cat = await call({ action: 'feed' })
+    check('feed 目录（16 社区）', cat.ok && (cat.data.match(/r\//g) || []).length >= 16 && cat.data.includes('创业'), cat.data.slice(0, 60))
+    const f1 = await call({ action: 'feed', subs: 'testfeed', limit: 5 })
+    check('feed 单社区最新帖', f1.ok && f1.data.includes('https://www.reddit.com/r/'), f1.data.slice(0, 60))
+  }
   const del = await call({ action: 'delete', name: STUDY })
   check('delete 调研', del.ok, '')
 }
@@ -212,6 +218,18 @@ const req = async (method, path, body) => {
   check('面板读 analysis.md', file.status === 200 && file.text().includes('痛点分析'), '')
   const sneaky = await req('GET', `/api/studies/${enc}/file?p=../project.json`)
   check('路径穿越拦截（白名单防 ../）', sneaky.status === 404, '')
+  {
+    const fcat = await req('GET', '/api/feed/catalog')
+    check('feed catalog 16 社区', fcat.status === 200 && fcat.json.subs.length === 16 && fcat.json.groups.length === 3, '')
+    const fpage = await req('GET', '/api/feed?sub=testfeed&limit=10')
+    check('feed 分页路由', fpage.status === 200 && Array.isArray(fpage.json.posts) && fpage.json.nextBefore !== undefined, '')
+    const fall = await req('GET', '/api/feed')
+    check('feed 全部混排', fall.status === 200 && Array.isArray(fall.json.posts), '')
+    const fnav = await req('GET', '/feed')
+    // feed 是 hash 路由——静态文件只有 index.html；改查 app.js 含 feed 渲染
+    const appjs2 = readFileSync(new URL('../lab/app.js', import.meta.url), 'utf8')
+    check('lab 海外动态路由', appjs2.includes('#/feed') && appjs2.includes('加载更多') && appjs2.includes('api/feed/catalog'), '')
+  }
   const lab = await req('GET', '/')
   check('lab index', lab.status === 200 && lab.text().includes('app.js'), '')
   const del = await req('DELETE', `/api/studies/${enc}`)
@@ -220,8 +238,16 @@ const req = async (method, path, body) => {
 {
   const appjs = readFileSync(new URL('../lab/app.js', import.meta.url), 'utf8')
   const client = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  const indexHtml = readFileSync(new URL('../lab/index.html', import.meta.url), 'utf8')
   check('lab 消息类型与 client 对齐', appjs.includes('reddit-research:refresh') && client.includes('reddit-research:refresh') && client.includes('reddit-research:start-ok'), '')
   check('scheme 消息对齐', readFileSync(new URL('../lab/scheme.js', import.meta.url), 'utf8').includes('reddit-research:scheme') && client.includes('reddit-research:scheme'), '')
+  // 面板 UX：必须有「发起调研」入口（首页 CTA + 导航 + #/new 表单），否则用户只能靠对话建调研
+  check('lab 有「发起调研」入口', appjs.includes("route(/^#\\/new$/, renderNew)") && appjs.includes('＋ 发起调研') && indexHtml.includes('href="#/new"'), '')
+  check('lab 发起调研会带完整指令', appjs.includes('reddit_research(action="create"') && appjs.includes('action="probe"'), '')
+  // 窗口由 probe 自动定，不把「页数」抛给用户确认（2026-11-14 用户反馈）
+  const hostSrc = readFileSync(new URL('../src/host.js', import.meta.url), 'utf8')
+  check('窗口自动定（不向用户确认）', !appjs.includes('报给我确认窗口') && !appjs.includes('确认窗口后再') && hostSrc.includes('不要回头找用户确认窗口'), '')
+  check('panel 探活回执带窗口建议', appjs.includes('r.plan?.days') && appjs.includes('直接拉取即可'), '')
 }
 
 srv.close()
