@@ -4,6 +4,11 @@ DeepSeek Harness（[dsh](https://www.npmjs.com/package/@deepseek-ai/dsh)）插�
 
 方法论与上游脚本源自 [reddit-research](https://github.com/liangdabiao/reddit-research)（Python 全量重写为 Node 原生，**零 Python 依赖**；上游 Python 脚本升级为 `reddit_research` 工具的 action，分析管线逐条对齐）。
 
+
+<img width="1455" height="573" alt="image" src="https://github.com/user-attachments/assets/53b6d391-c20f-4936-b4ba-38e59c971c40" />
+<img width="1317" height="669" alt="image" src="https://github.com/user-attachments/assets/c0367dcc-645d-497a-b720-e57d92d2c432" />
+
+
 ## 装上以后有什么
 
 | 能力 | 说明 |
