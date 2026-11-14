@@ -7,6 +7,7 @@ DeepSeek Harness（[dsh](https://www.npmjs.com/package/@deepseek-ai/dsh)）插�
 
 <img width="1455" height="573" alt="image" src="https://github.com/user-attachments/assets/53b6d391-c20f-4936-b4ba-38e59c971c40" />
 <img width="1317" height="669" alt="image" src="https://github.com/user-attachments/assets/c0367dcc-645d-497a-b720-e57d92d2c432" />
+<img width="2052" height="1380" alt="image" src="https://github.com/user-attachments/assets/4d1f6e93-f09a-4b99-aeef-a9ab8c89e18e" />
 
 
 ## 装上以后有什么
