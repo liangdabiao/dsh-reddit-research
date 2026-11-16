@@ -10,6 +10,12 @@ DeepSeek Harness（[dsh](https://www.npmjs.com/package/@deepseek-ai/dsh)）插�
 <img width="2052" height="1380" alt="image" src="https://github.com/user-attachments/assets/4d1f6e93-f09a-4b99-aeef-a9ab8c89e18e" />
 
 
+## 安装
+
+```bash
+dsh plugin --profile web add https://github.com/liangdabiao/dsh-reddit-research
+```
+
 ## 装上以后有什么
 
 | 能力 | 说明 |
